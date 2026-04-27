@@ -1,23 +1,35 @@
-name: Build and Deploy
+name: Deploy
+
 on:
-    push:
-        branches:
-            - master
+  workflow_dispatch:
+
 jobs:
-    build-and-deploy:
-        runs-on: ubuntu-latest
-        concurrency: ci-${{ github.ref }}
-        steps:
-            - name: Checkout
-              uses: actions/checkout@v6.0.2
+  # Build job
+  build:
+    runs-on: ubuntu-latest
+    env:
+      SSH_KEY_PATH: /tmp/ssh_key
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
-            - name: Install and Build
-              run: |
-                  npm ci
-                  npm run build
+      - name: Build
+        run: docker build -t ghcr.io/vmatyagin/rsopay.so.spb.ru:latest -t ghcr.io/vmatyagin/rsopay.so.spb.ru:$GITHUB_SHA .
 
-            - name: Deploy
-              uses: JamesIves/github-pages-deploy-action@v4.8.0
-              with:
-                  branch: gh-pages
-                  folder: public
+      - name: Save Docker image as tar file
+        run: docker save -o rsopay.so.spb.tar ghcr.io/vmatyagin/rsopay.so.spb.ru:latest ghcr.io/vmatyagin/rsopay.so.spb.ru:$GITHUB_SHA
+
+      - name: Transfer Docker image to remote server
+        run: scp -o StrictHostKeyChecking=no -i ${{ env.SSH_KEY_PATH }} rsopay.so.spb.tar ${{ vars.PRODUCTION_SSH_USERNAME }}@${{ vars.PRODUCTION_SSH_HOST }}:${{ vars.REMOTE_SERVER_PATH }}
+
+      - name: Load Docker image on remote server
+        run: |
+          ssh -o StrictHostKeyChecking=no -i ${{ env.SSH_KEY_PATH }} ${{ vars.PRODUCTION_SSH_USERNAME }}@${{ vars.PRODUCTION_SSH_HOST }} "docker load -i ${{ vars.REMOTE_SERVER_PATH }}/rsopay.so.spb.tar && rm -rf ${{ vars.REMOTE_SERVER_PATH }}/rsopay.so.spb.tar"
+
+      - name: Transfer Docker Compose file to remote server
+        run: |
+          scp -o StrictHostKeyChecking=no -i ${{ env.SSH_KEY_PATH }} docker-compose.production.yml ${{ vars.PRODUCTION_SSH_USERNAME }}@${{ vars.PRODUCTION_SSH_HOST }}:${{ vars.REMOTE_SERVER_PATH }}
+
+      - name: Deploy Docker containers using Docker Compose on remote server
+        run: |
+          ssh -o StrictHostKeyChecking=no  -i ${{ env.SSH_KEY_PATH }} ${{ vars.PRODUCTION_SSH_USERNAME }}@${{ vars.PRODUCTION_SSH_HOST }} "docker compose -f ${{ vars.REMOTE_SERVER_PATH }}/docker-compose.production.yml up -d"

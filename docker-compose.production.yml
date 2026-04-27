@@ -1,0 +1,12 @@
+networks:
+  web-rsopay:
+    external: true
+
+services:
+  rsopay.so.spb.ru:
+    image: ghcr.io/vmatyagin/rsopay.so.spb.ru:${GITHUB_SHA:-latest}
+    expose:
+      - 80
+    restart: unless-stopped
+    networks:
+      - web-rsopay
